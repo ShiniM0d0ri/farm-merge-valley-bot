@@ -1,0 +1,19 @@
+{
+  "name": "farm-merge-valley-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Nakama client that automates the Farm Merge Valley Discord activity",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "config": "node fetch_config.js",
+    "start": "node bot.js",
+    "dry": "node bot.js --rounds=auto",
+    "apply": "node bot.js --apply --rounds=auto",
+    "loop": "node bot.js --apply --loop --rounds=auto",
+    "verify": "node verify.js",
+    "test": "node scratch/test_merge_max.js && node scratch/test_harvest.js && node scratch/test_daily.js && node scratch/test_regen.js && node scratch/test_rewards.js && node scratch/test_order_chain.js"
+  }
+}
