@@ -563,8 +563,8 @@ matching timers live in `TimerModel`:
 
 | generator key | timer label | duration | meaning |
 |---|---|---|---|
-| `crates_generator` | `regenerate_crates_generator` | **300000 ms** | +1 crate every **5 min** |
-| `energy_generator` | `regenerate_energy_generator` | **180000 ms** | +1 energy every **3 min** |
+| `crates_generator` | `regenerate_crates_generator` | **300000 ms** | +**5** crates every **5 min**, ceiling **40** |
+| `energy_generator` | `regenerate_energy_generator` | **180000 ms** | +**1** energy every **3 min**, ceiling **50** |
 | `crates_10_no_ads` | `regenerate_crates_10_no_ads` | **14400000 ms** | +10 crates / 4 h (ad-free refill) |
 | `energy_5_no_ads` | `regenerate_energy_5_no_ads` | **14400000 ms** | +5 energy / 4 h |
 | `gems_5_no_ads` | `regenerate_gems_5_no_ads` | **14400000 ms** | +5 gems / 4 h |
@@ -576,20 +576,29 @@ matching timers live in `TimerModel`:
 The three `*_no_ads` refills and the two per-minute stock refills are decoded **end to end** (reward
 amount, duration, and the exact client write that carries them) — §10 is the authoritative section.
 
-**The cap itself is not in any config file.** `progression_jsonpack.json` carries only
-`items_unlocked`, `recipes_unlocked`, `exp_to_next_level` and `rewards` per level — no ceiling.
-The cap is hardcoded in the (string-table-obfuscated) client, so it has to be observed, not read.
+**The ceilings are in the `config` jsonpack** (`config_jsonpack.json`, fetched by `npm run config`) —
+they are *not* hardcoded in the obfuscated client after all:
 
-**Observed: the client renders the crate stock as `N/40`, but 40 is not a hard counter cap.** The
-player saw `40/40` while parked, yet the very next read showed `crates: 75` — i.e. 40 is the
-**generator's** stock ceiling (`crates_generator`, +1 / 5 min), while other sources (daily bonus,
-orders, seasonal pass) add crates on top of it. The **energy** ceiling is likewise still unobserved
-(the live account sat at 270+ without clipping).
+    crate_regeneration_config  { MAX_AMOUNT: 40, AMOUNT_PER_INTERVAL: 5, SPAWN_INTERVAL: 300 }
+    energy_regeneration_config { MAX_AMOUNT: 50, AMOUNT_PER_INTERVAL: 1, SPAWN_INTERVAL: 180 }
+
+`SPAWN_INTERVAL` is in seconds and lines up exactly with the `regenerate_<name>` duration the client
+writes (300000 ms / 180000 ms), which is what pins each config to its generator.
+`progression_jsonpack.json` carries no ceiling at all — only `items_unlocked`, `recipes_unlocked`,
+`exp_to_next_level` and `rewards` per level, which is why this looked client-side for so long.
+
+**Observed: the client renders the crate stock as `N/40`, and 40 is the generator's ceiling — not a
+cap on the counter.** The player saw `40/40` while parked, yet the very next read showed
+`crates: 75`: other sources (daily bonus, orders, seasonal pass) add crates on top of the generator.
+What the ceiling does cap is the **generator** — at or above 40 the refill stalls and `lastStartTime`
+stops moving (§10), so everything the generator would have produced while parked is lost. Energy
+behaves the same way at 50 (the live account sat pinned at exactly `energy: 50`).
 
 ### The consequence, and the strategy
 
 Because regeneration stops at the ceiling, **time parked at the cap is regeneration permanently
-lost** — at 5 min/crate that is up to ~288 crates/day, and at 3 min/energy ~480 energy/day.
+lost** — 5 crates / 5 min is 1440 crates/day of generator output and 1 energy / 3 min is 480
+energy/day, all of it thrown away for as long as the counter sits at 40 / 50.
 So holding a big crate pile is not "saving up", it is throwing the generator away. This is why
 **opening as many crates as the board can take is the correct default**, not just a way to get loot.
 
@@ -935,14 +944,15 @@ the game itself would clamp — so the cap needs confirming first.
 `--no-regen`). It runs after orders, so the `TimerModel` it edits already carries the work + order
 timers.
 
-- Only the three fixed 4-hour refills are automated. Ad-gated (`*_rv`), premium (`*_premium`),
-  event-only (`tle_energy_generator`, `event_energy_5_no_ads`) and the per-minute stock refills
-  (`*_generator`) are listed in `NOT_AUTOMATED` with a reason and left alone.
+- Only the three fixed 4-hour refills and the two passive stock refills are automated. Ad-gated
+  (`*_rv`), premium (`*_premium`) and event-only (`tle_energy_generator`, `event_energy_5_no_ads`)
+  are listed in `NOT_AUTOMATED` with a reason and left alone.
 - **Availability is `stock >= 1` OR the clock having elapsed** — see above. A banked collect resets
   the clock to now so it can never re-fire.
-- **Catch-up is clamped to one cycle per generator per save.** `lastStartTime` advances by exactly
+- **Catch-up is clamped to one cycle per reload per save.** `lastStartTime` advances by exactly
   the cycles credited, so a long idle period drains one refill per save instead of landing as a
-  single enormous write — never more than the game would eventually grant anyway.
+  single enormous write — never more than the game would eventually grant anyway. (Stock refills
+  need no clamp: their grant is already bounded by the ceiling.)
 - The payout is folded into `gains`, so `InventoryModel` is still written **once**, together with
   every other counter change in that save.
 - A refill is credited only when its duration has genuinely elapsed, measured on this machine's
@@ -950,22 +960,63 @@ timers.
   `energy_generator.lastStartTime` was 2.5 min ahead of local `Date.now()`). The error direction is
   safe: a refill can be collected slightly late, never early.
 
-### Why the per-minute refills are not automated
+### The passive stock refills — **solved 2026-10-17**
 
-`crates_generator` (+1 / 5 min, ceiling 40 per §7) and `energy_generator` (+1 / 3 min) are *stock*
-refills rather than reloads the player taps, and their ceiling lives in the obfuscated client. It was
-never observed being hit — crates peaked at **175**, energy at **185**, gems at **180** across both
-captures — so a catch-up grant after any idle period would be unbounded. Automating them needs a
-capture that parks at the cap.
+`crates_generator` / `energy_generator` are *stock* refills rather than reloads the player taps, and
+they were held back for a long time because their ceiling was thought to live in the obfuscated
+client and had never been observed being hit (crates peaked at **175**, energy at **185** across the
+captures, so a catch-up grant looked unbounded). Both halves are now pinned:
+
+- **The ceilings are in `config_jsonpack.json`** — §7. `MAX_AMOUNT` 40 crates / 50 energy,
+  `AMOUNT_PER_INTERVAL` 5 crates / 1 energy, `SPAWN_INTERVAL` 300 s / 180 s, the last matching the
+  `regenerate_<name>` duration the client writes.
+- **The client's write is directly observed.** On `2026-10-16T21:44Z` the live account read
+  `crates: 0` with `crates_generator.lastStartTime` **4h19m** old and `timerId: null`; the player's
+  client then rendered, and by `21:48:43Z` the state was `lastStartTime: 1792187323528`,
+  `timerId: 2364`, plus a fresh `regenerate_crates_generator` timer
+  `{started: 1792187323529, duration: 300000, timeSource: 'server'}` and crates back at the ceiling.
+  So the client: credits `min(accrued intervals * per, ceiling - current)`, sets
+  `lastStartTime = now`, and arms the interval timer.
+
+The rule `planPassive` implements is therefore:
+
+    if (current >= ceiling) { do nothing at all }          // parked: no grant AND no clock movement
+    else { pending = floor((now - lastStartTime) / interval)
+           current += min(pending * per, ceiling - current)
+           lastStartTime = now; arm(regenerate_<name>, interval) }
+
+Three details fall out of the observation:
+
+- **A parked counter neither grants nor advances the clock.** That is why the 4h19m backlog was still
+  there the moment the counter dropped: the whole thing landed at once as the `40/40` the player
+  reported seeing right after the bot had emptied the pile.
+- **The clock resets to `now`**, not to `lastStartTime + pending * interval` — the leftover
+  sub-interval is discarded, like the intervals that did not fit under the ceiling. The summary line
+  reports those as `N lost at the ceiling`.
+- **The grant is clamped to the ceiling rather than dropped when an interval does not fit**, or
+  crates sitting at 38 of 40 would stall the generator forever.
+
+Live confirmation (`bot.js --apply --rounds=auto`, 2026-10-17), both saves `verified: true`:
+
+    round 1  stock refill crates_generator: +5 crates [generator] (1/1 interval(s) up to the 40 ceiling)
+    round 2  stock refill energy_generator: +25 energy [generator] (25/563 interval(s) up to the 50 ceiling), 538 lost at the ceiling
+
+The energy one is the interesting shape: round 1 spent 25 energy on a worker dispatch, which dropped
+the counter below 50, and the next save credited the generator straight back to the ceiling.
 
 ### Verifying
 
-`node scratch/test_regen.js` replays all three HAR collects and asserts the writes (38 checks):
-amount, both availability paths, cycle preservation, the clamp, the timer re-arm (`nextTimerId`
-advance, label, duration), the stock spend, untouched generators staying byte-identical,
-re-planning the written state to prove no runaway, and the solver writing `InventoryModel` exactly
-once. `node scratch/regen_status.js` prints live readiness per generator, and
-`node scratch/stock_timeline.js` diffs `MarketplaceModel.data.stock` across a capture.
+`node scratch/test_regen.js` replays all three HAR collects **and** the two stock refills and asserts
+the writes (61 checks): amount, both availability paths, cycle preservation, the clamp, the timer
+re-arm (`nextTimerId` advance, label, duration), the stock spend, untouched generators staying
+byte-identical, re-planning the written state to prove no runaway, and the solver writing
+`InventoryModel` exactly once. The stock-refill half pins the ceilings against
+`config_jsonpack.json`, replays the live `0 crates / 4h19m` reading (51 intervals -> +40, 43 lost),
+checks the parked / exactly-at-cap / not-yet-due / partial-fit (38 -> 40) arms, the fail-closed path
+when the config pack is missing, and that a refill arms `regenerate_<name>` like the client does.
+`node scratch/regen_status.js` prints live readiness per generator (stock refills show
+`N/ceiling`), and `node scratch/stock_timeline.js` diffs `MarketplaceModel.data.stock` across a
+capture.
 
 ## Summary of what is safe to implement
 
@@ -982,7 +1033,8 @@ once. `node scratch/regen_status.js` prints live readiness per generator, and
 | Orders — start / complete / collect | **done + verified** | `--no-orders` to skip; completion + collection are chained into one save |
 | Claim level-up rewards (§9) | **done + verified** | `+10 crates +10 energy` per level (4–130); `--no-level-rewards` to skip. Applied by the client, so the bot makes the same inventory edit |
 | Collect visitor rewards (§9) | **done + verified** | `--no-visitors` to skip; credits `VisitorRewardModel.reward[]` then resets it to `{reward:[],player:null}` |
-| Collect time-based reloads (§10) | **done + verified** | `--no-regen` to skip; `+10 crates` / `+5 gems` / `+5 energy` per 4 h, credited when `MarketplaceModel.data.stock` is banked **or** the clock has landed, catch-up clamped to one refill per generator per save, and the stock spent in the same write. Per-minute `*_generator` refills deliberately excluded (ceiling unobserved) |
+| Collect time-based reloads (§10) | **done + verified** | `--no-regen` to skip; `+10 crates` / `+5 gems` / `+5 energy` per 4 h, credited when `MarketplaceModel.data.stock` is banked **or** the clock has landed, catch-up clamped to one refill per generator per save, and the stock spent in the same write |
+| Passive stock refills (§7, §10) | **done + verified** | `crates_generator` **+5 crates / 5 min** (ceiling **40**) and `energy_generator` **+1 energy / 3 min** (ceiling **50**), both read from `config_jsonpack.json`; the client's write is observed (credits the accrued intervals clamped to the ceiling, sets `lastStartTime = now`, arms `regenerate_<name>`). `--no-regen` covers both; skipped fail-closed if the config pack is missing |
 | Daily challenges (`DailyChallengeModel`) | **progress done + verified**, claims not | the four counter units are pinned and advanced by the bot (`harvest` per loot tap, `spend.energy`, `spend.crates`, `order.rewarded`) — §9. The `collected` **claim** payout is still unobserved, so the bot stops at `targetAmount` and leaves the claim to the player |
 
 **Operational constraint (§8):** the account allows only **one WebSocket**. The bot's loop is

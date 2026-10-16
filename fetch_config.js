@@ -16,7 +16,7 @@ import { APP_ID } from './lib/creds.js';
 import { CFG_DIR, requireEnv } from './lib/env.js';
 
 /** The packs the bot (and the fixture tests) actually read. */
-const NEEDED = ['blueprints', 'progression', 'controlled_randomness', 'recipes', 'buildings'];
+const NEEDED = ['blueprints', 'progression', 'controlled_randomness', 'recipes', 'buildings', 'config'];
 /** Asset version. The static host ignores it, but the client's own is the safe value. */
 const V = process.env.FMV_VERSION || '1.80.4-1';
 

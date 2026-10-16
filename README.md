@@ -108,7 +108,7 @@ repo downloads them instead of committing them (they are game assets, and `confi
 node fetch_config.js        # or: npm run config
 ```
 
-That writes the five packs into `FMV_CFG` (`./config` by default). Under the hood, for each pack:
+That writes the six packs into `FMV_CFG` (`./config` by default). Under the hood, for each pack:
 
 1. `https://<APP_ID>.discordsays.com/jsonpackmap.json` is the index: it maps every id to the pack that
    defines it, e.g. `"alpaca_1": "blueprints"`.
@@ -121,10 +121,11 @@ That writes the five packs into `FMV_CFG` (`./config` by default). Under the hoo
 | `progression_jsonpack.json` | levels, `items_unlocked`, level-up `rewards` |
 | `controlled_randomness_jsonpack.json` | crate contents and their weights |
 | `recipes_jsonpack.json`, `buildings_jsonpack.json` | orders and workshops |
+| `config_jsonpack.json` | the regeneration ceilings (`crate_regeneration_config`, `energy_regeneration_config`) |
 
 `node fetch_config.js --all` pulls the remaining packs (`npcs`, `tasks`, `shop`, `objectives`, …) that
-only the recon probes read. Run this **before `npm test`**: the fixture suites read `blueprints` and
-`progression` from `CFG_DIR`.
+only the recon probes read. Run this **before `npm test`**: the fixture suites read `blueprints`,
+`progression` and `config` from `CFG_DIR`.
 
 ### Safety
 
@@ -210,16 +211,25 @@ merges only.
 (3/9/27/81 by tier, doubled for a 5-merge). Therefore the bot merges first and only collects
 leftovers that cannot reach a group of 3. Disable with `--no-collect`.
 
-Since regeneration stops at a ceiling, sitting at the cap loses regen permanently — crates are
-**+1 per 5 min** and energy **+1 per 3 min** (§7 of MECHANICS.md). So the default is to spend crates
-down to whatever the board can hold, rather than hoarding.
+Since regeneration stops at a ceiling, sitting at the cap loses regen permanently — the crate
+generator makes **+5 crates per 5 min up to 40** and the energy generator **+1 energy per 3 min up to
+50** (§7 of MECHANICS.md). So the default is to spend crates down to whatever the board can hold,
+rather than hoarding.
 
 **Time-based reloads are collected too** (§10). The `*_no_ads` refills are client-applied like every
 other reward, so an idle bot must write them itself: `+10 crates`, `+5 gems` and `+5 energy` each
 4 h, credited when `MarketplaceModel.data.stock` says a refill is banked **or** when the 4 h clock
 has elapsed — the HAR's own collects happen at 65–70 min because the stock was already banked, not
-because a clock ran out. `--no-regen` disables it. The per-minute stock refills are deliberately
-**not** automated — their ceiling was never observed, so catch-up would be unbounded.
+because a clock ran out. `--no-regen` disables it.
+
+**The passive stock refills are automated as well** (§10). `crates_generator` and
+`energy_generator` have no button to tap: the client tops the counter up as time passes and stalls at
+its ceiling, and the ceilings are in `config_jsonpack.json` (40 crates / 50 energy), not in the
+obfuscated client. This is why a full crate pile can look "unopened" — the counter refills itself to
+`40/40` the moment it is emptied, because everything accrued while it was parked lands at once. The
+bot credits `min(accrued intervals, ceiling - current)`, resets the clock to now and arms
+`regenerate_<name>`, exactly like the client's own write. `--no-regen` covers both, and if the config
+pack is missing the refills are skipped rather than guessed (fail closed).
 
 **Tier-4 producers are kept producing** (§4). Merging into a producer starts a 30-minute
 `Cooldown:<row>,<col>` timer; when it lands the tile materialises into `lootable` and the bot loots it
@@ -257,7 +267,7 @@ node bot.js --apply --no-crates       # never open crates
 node bot.js --apply --crates=20       # open exactly 20 crates
 node bot.js --apply --no-visitors     # don't collect pending visitor rewards
 node bot.js --apply --no-level-rewards   # don't apply per-level crates/energy
-node bot.js --apply --no-regen        # don't collect due time-based reloads (4h refills)
+node bot.js --apply --no-regen        # don't collect regeneration (4h reloads + crate/energy refills)
 node bot.js --apply --reserve-energy=50  # never spend energy below 50 (leave some for yourself)
 node bot.js --apply --loop --max-failures=0   # never auto-stop a long unattended run
 node bot.js --apply --refresh         # allow session auto-renewal - will disconnect your client!
@@ -312,7 +322,7 @@ node check_work.js                # live report of dispatched workers, gates and
 node orders.js                    # read-only order report: slot states + craftable recipes
 node scratch/check_session.js     # is the account still reachable over HTTP? (server up? token ok?)
 node scratch/probe_socket_slot.js 30   # hold the socket 30s; reports if another session boots us
-node scratch/regen_status.js      # live: per-generator reload readiness (due / ready-in / non-automated)
+node scratch/regen_status.js      # live: per-generator readiness (due / ready-in / stock refill accrual)
 ```
 
 The recon probes read their inputs from the repo root and honour `.env`: HAR scripts take the capture
@@ -371,7 +381,7 @@ The planner tests replay **real HAR numbers** and assert the exact outcomes (saf
 ```
 node scratch/test_merge_max.js    # merge split + cascade, vs an exhaustive DP (PASS, 56 checks)
 node scratch/test_rewards.js      # level-up + visitor rewards, HAR-exact (PASS, 8 checks)
-node scratch/test_regen.js        # the three 4 h reloads + timer re-arm, HAR-exact (PASS, 38 checks)
+node scratch/test_regen.js        # the three 4 h reloads + the two stock refills (PASS, 61 checks)
 node scratch/test_harvest.js      # tier-4 producers: merge / materialise / repair, HAR-exact (PASS, 47 checks)
 node scratch/test_daily.js        # daily + season counters: the four task units, HAR-exact (PASS, 25 checks)
 node scratch/test_order_chain.js  # order completion + collection land in one save
@@ -401,7 +411,7 @@ when you are not playing.
 | `lib/crates.js` | crate opening: `objectPool`, `drawCrate`, `buildCrateUpdates` |
 | `lib/orders.js` | orders: `planOrderStarts/Collects/Completions`, `buildOrderUpdates` |
 | `lib/rewards.js` | client-applied rewards: `levelRewards`, `pendingVisitorRewards` (§9) |
-| `lib/regen.js` | time-based reloads: `GENERATORS`, `NOT_AUTOMATED`, `planRegen`, `buildRegenUpdates` (§10) |
+| `lib/regen.js` | regeneration: `GENERATORS` (4 h reloads), `PASSIVE` (crate/energy stock refills), `loadCeilings`, `planRegen`/`planPassive`, `buildRegenUpdates`, `NOT_AUTOMATED` (§10) |
 | `lib/daily.js` | daily-challenge + seasonal-pass counters: `buildTaskUpdates` (§9) |
 | `lib/blueprints.js` | `resolveBlueprint`, `persistedState`, `applyExp`, `splitTier`, `unlockedFamilies` |
 | `lib/board.js` | `tiles`, `printBoard`, `byBlueprint`, `freeCells`, `emptyTile`, `filledTile` |
@@ -438,7 +448,8 @@ rewards are all decoded there.
 | Orders — start / complete / collect | **done + verified** | `--no-orders` to skip; completion + collection chained into one save |
 | Claim level-up rewards | **done + verified** | captured 13 → 14 (§9): level-up save has no reward, the **next** save adds `crates +10`, `energy +10`; every level 4–130 pays the same. `--no-level-rewards` to skip |
 | Collect visitor ("train") rewards | **done + verified** | `VisitorRewardModel.reward[]` is credited to the inventory and the model reset to `{reward:[],player:null}`; `--no-visitors` to skip |
-| Collect time-based reloads | **done + verified** | `+10 crates` / `+5 gems` / `+5 energy` per 4 h (§10); credited when `MarketplaceModel.data.stock` says a refill is banked **or** the 4 h clock has landed, catch-up clamped to one refill per generator per save, and the stock is spent in the same save; `--no-regen` to skip. The per-minute `*_generator` refills are deliberately **not** automated — never observed hitting their ceiling |
+| Collect time-based reloads | **done + verified** | `+10 crates` / `+5 gems` / `+5 energy` per 4 h (§10); credited when `MarketplaceModel.data.stock` says a refill is banked **or** the 4 h clock has landed, catch-up clamped to one refill per generator per save, and the stock is spent in the same save; `--no-regen` to skip |
+| Passive stock refills | **done + verified** | `crates_generator` **+5 crates / 5 min** (ceiling **40**) and `energy_generator` **+1 energy / 3 min** (ceiling **50**) (§7, §10); ceilings read from `config_jsonpack.json`, grant clamped to the ceiling, clock reset to now and `regenerate_<name>` re-armed exactly like the client's own write; skipped fail-closed if the config pack is missing |
 | Daily challenges (`DailyChallengeModel`) | progress done + verified, claims not | the counter units are pinned (§9); the `collected` claim payout is still unobserved, so the bot stops at `targetAmount` |
 | Seasonal pass quest (`TimedEventModel`) | **done + verified** | `activeQuest.progress` for `order.rewarded`, matched on `taskAction` (§9) |
 

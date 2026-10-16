@@ -7,7 +7,7 @@
 //   node bot.js --apply --loop --every=60
 //   node bot.js --apply --loop --cycles=20   stop after 20 cycles
 //   node bot.js --apply --no-collect   /  --no-loot  /  --no-work  /  --no-orders  /  --no-crates  /  --min=5
-//   node bot.js --apply --no-regen     don't collect due time-based reloads (4h refills)
+//   node bot.js --apply --no-regen     don't collect regeneration (4h reloads + crate/energy refills)
 //   node bot.js --apply --no-producers don't materialise/repair tier-4 producers (merges still arm them)
 //   node bot.js --apply --crates=5     open exactly 5 crates (default: auto = all that fit)
 //   node bot.js --apply --reserve-energy=50   never spend energy below 50 (for parallel play)
@@ -64,8 +64,9 @@ const NO_CRATES = has('--no-crates');
 // Level-up rewards + visitor ("train") rewards are client-applied (MECHANICS section 9).
 const LEVEL_REWARDS = !has('--no-level-rewards');
 const VISITOR_REWARDS = !has('--no-visitors');
-// Time-based reloads (regeneration) are client-applied too (MECHANICS section 10): a reload whose
-// duration has elapsed is credited by the client. Only the fixed 4-hour reloads are automated.
+// Regeneration is client-applied too (MECHANICS section 10): a reload whose duration has elapsed is
+// credited by the client, and the crate/energy stock refills are topped up by it as time passes. The
+// three fixed 4-hour reloads and the two stock refills (ceilings from the config pack) are automated.
 const REGEN = !has('--no-regen');
 // Tier-4 producers (MECHANICS section 4): merging into one starts a 30-minute cooldown and the tile
 // materialises when it lands. `--no-producers` skips the materialise/repair half; a merge's cooldown
