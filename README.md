@@ -43,6 +43,13 @@ An empty board cell is `{data:{state:null},version:1}`.
 
 Node **≥ 22** (built-in `fetch` and `WebSocket`). **No npm dependencies** — there is no install step.
 
+**1. Capture the activity.** Open Farm Merge Valley in Discord → DevTools → **Network** → right-click
+the request list → **Export HAR (with sensitive data)**. The default *sanitized* export strips
+`Authorization` and `Cookie`, and `FMV_KEY` lives in exactly that header — with a sanitized capture
+everything still works except `--refresh` (`setup.js` warns when it sees one).
+
+**2. Bootstrap.**
+
 ```
 git clone https://github.com/ShiniM0d0ri/farm-merge-valley-bot.git
 cd farm-merge-valley-bot
@@ -52,12 +59,12 @@ npm run dry                              # read-only: prints the board and the p
 npm run apply                            # one full round: merges + collects + loots + work + orders + crates
 ```
 
-`setup.js` is the whole configuration step: it reads a HAR capture of the activity, writes `.env`
-(the ids and, when the capture carries it, the server key) and `session.json` (your session token),
-then downloads the game's jsonpacks into `./config`. It masks every secret it reports, refuses to
-write a half-filled config, and tells you if the captured token has already expired. A re-capture is
-usually a WS-only HAR (one `/nakama/ws` entry) — it carries the fresh token but no ids, so those are
-inherited from the existing `.env`.
+`setup.js` is the whole configuration step: it reads the capture, writes `.env` (the ids, and the
+server key when the export kept it), `session.json` (your session token), then downloads the game's
+jsonpacks into `./config`. It masks every secret it reports, refuses to write a half-filled config,
+and tells you if the captured token has already expired. A re-capture is usually a WS-only HAR (one
+`/nakama/ws` entry) — it carries the fresh token but no ids, so those are inherited from the existing
+`.env`.
 
 ```
 node setup.js capture.har --print       # show what would be extracted, write nothing
