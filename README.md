@@ -73,6 +73,11 @@ template. Nothing belonging to your account is committed — not `.env`, not `se
 Optional keys: `FMV_SESSION` (path of the session file, default `./session.json`) and
 `FMV_ALLOW_REFRESH=1` (let the bot renew its own token — read the warning below first).
 
+All of it is also recoverable from one capture in a single step:
+`node scratch/har_to_env.js <capture.har>` writes both `.env` and `session.json` (see
+[Recon tooling](#recon-tooling)). It leaves `FMV_KEY` blank when the capture does not carry the
+`Authorization` header — that only affects `--refresh`.
+
 ### The session token (`session.json`)
 
 The bot drives **your** session, so it needs the Nakama token your game client is already using.
@@ -312,6 +317,7 @@ node watchdiff.js          # shows exactly what that action persisted
 ```
 
 ```
+node scratch/har_to_env.js <capture.har>   # bootstrap .env + session.json from a HAR
 node snap.js <label>              # snapshot live state -> snaps/<label>.json
 node diff.js <a> <b>              # show exactly what changed between two snapshots
 node watch.js 3 watch             # poll every 3s, save a snapshot whenever state changes
