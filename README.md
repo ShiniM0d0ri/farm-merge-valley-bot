@@ -46,14 +46,28 @@ Node **≥ 22** (built-in `fetch` and `WebSocket`). **No npm dependencies** — 
 ```
 git clone https://github.com/ShiniM0d0ri/farm-merge-valley-bot.git
 cd farm-merge-valley-bot
-cp .env.example .env      # then fill it in (below)
-npm run config            # download the game's jsonpacks into ./config
-npm test                  # the fixture tests (no network, no writes)
-npm run dry               # read-only: prints the board and the plan, writes nothing
-npm run apply             # one full round: merges + collects + loots + work + orders + crates
+node setup.js "C:\path\to\capture.har"   # or: npm run setup -- "capture.har"
+npm test                                 # the fixture tests (no network, no writes)
+npm run dry                              # read-only: prints the board and the plan, writes nothing
+npm run apply                            # one full round: merges + collects + loots + work + orders + crates
 ```
 
-`npm run config` is required — the configs are game assets, so they are downloaded rather than
+`setup.js` is the whole configuration step: it reads a HAR capture of the activity, writes `.env`
+(the ids and, when the capture carries it, the server key) and `session.json` (your session token),
+then downloads the game's jsonpacks into `./config`. It masks every secret it reports, refuses to
+write a half-filled config, and tells you if the captured token has already expired. A re-capture is
+usually a WS-only HAR (one `/nakama/ws` entry) — it carries the fresh token but no ids, so those are
+inherited from the existing `.env`.
+
+```
+node setup.js capture.har --print       # show what would be extracted, write nothing
+node setup.js capture.har --no-config   # skip the config download (already have ./config)
+```
+
+Then re-run `node setup.js <new.har>` whenever the session expires (it lasts ~24 h). Manual setup,
+`--refresh` and the per-value instructions are below.
+
+The config download is required — the configs are game assets, so they are downloaded rather than
 committed ([Game config](#game-config)). `npm run dry` / `apply` / `loop` / `verify` wrap the common
 `node bot.js …` invocations; the flags themselves are in [Usage](#usage).
 
@@ -74,9 +88,9 @@ Optional keys: `FMV_SESSION` (path of the session file, default `./session.json`
 `FMV_ALLOW_REFRESH=1` (let the bot renew its own token — read the warning below first).
 
 All of it is also recoverable from one capture in a single step:
-`node scratch/har_to_env.js <capture.har>` writes both `.env` and `session.json` (see
-[Recon tooling](#recon-tooling)). It leaves `FMV_KEY` blank when the capture does not carry the
-`Authorization` header — that only affects `--refresh`.
+`node setup.js <capture.har>` writes both `.env` and `session.json` (see [Setup](#setup)). It leaves
+`FMV_KEY` blank when the capture does not carry the `Authorization` header — that only affects
+`--refresh`.
 
 ### The session token (`session.json`)
 
@@ -317,7 +331,6 @@ node watchdiff.js          # shows exactly what that action persisted
 ```
 
 ```
-node scratch/har_to_env.js <capture.har>   # bootstrap .env + session.json from a HAR
 node snap.js <label>              # snapshot live state -> snaps/<label>.json
 node diff.js <a> <b>              # show exactly what changed between two snapshots
 node watch.js 3 watch             # poll every 3s, save a snapshot whenever state changes
@@ -402,6 +415,7 @@ when you are not playing.
 
 | Path | Role |
 |---|---|
+| `setup.js` | one-command bootstrap: `.env` + `session.json` from a HAR, then the config (`npm run setup`) |
 | `fetch_config.js` | downloads the game's config jsonpacks into `CFG_DIR` (`npm run config`) |
 | `package.json` | scripts (`config` / `dry` / `apply` / `loop` / `verify` / `test`) and `engines: node >= 22` |
 | `bot.js` | CLI entry point / loop |

@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "setup": "node setup.js",
     "config": "node fetch_config.js",
     "start": "node bot.js",
     "dry": "node bot.js --rounds=auto",
