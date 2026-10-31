@@ -79,7 +79,7 @@ template. Nothing belonging to your account is committed — not `.env`, not `se
 
 | key | what it is | how to get it |
 |---|---|---|
-| `FMV_KEY` | Nakama **server key** — game-wide, not personal | Any HAR of the activity: find a `POST /v2/rpc/...` request, base64-decode its `Authorization: Basic <b64>` header — the result is `<key>:`. It is also in the client bundle's string table. |
+| `FMV_KEY` | Nakama **server key** — validated server-side, per deployment (not a well-known constant) | Only from an **unsanitized** HAR: right-click the request list → *Export HAR (with sensitive data)*, then base64-decode the `Authorization: Basic <b64>` on the `authenticate/custom` call (the result is `<key>:`). DevTools' default *sanitized* export strips every `Authorization` header, and the key is not in the client bundle. Needed only for `--refresh`. |
 | `FMV_APP_ID` | the Activity's Discord **application id** — game-wide | It is the subdomain of the activity host (`https://<APP_ID>.discordsays.com/…`) and the `client_id` in the activity URL, so any HAR shows it. |
 | `FMV_DISCORD_ID` | **your** Discord user id — this identifies the account the bot drives | Discord → *Settings → Advanced* → enable **Developer Mode**, then right-click your avatar → **Copy User ID**. |
 | `FMV_CFG` | directory holding the extracted game config | see [Game config](#game-config) (`./config` by default) |
@@ -331,6 +331,7 @@ node watchdiff.js          # shows exactly what that action persisted
 ```
 
 ```
+node scratch/cdp_capture.js <url> [seconds]   # throwaway Chrome over CDP: requests, auth headers, payloads
 node snap.js <label>              # snapshot live state -> snaps/<label>.json
 node diff.js <a> <b>              # show exactly what changed between two snapshots
 node watch.js 3 watch             # poll every 3s, save a snapshot whenever state changes

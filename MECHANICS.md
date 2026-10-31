@@ -728,6 +728,36 @@ Verified for the opt-in path: renewal extends expiry (`2026-10-17 12:39` → `15
 rotates the refresh token, and `GET_SERVER_TIME` succeeds straight after. Exports for scripts:
 `refreshAllowed()`, `refreshSession(s)`, `tokenExpired(s)`, `expiry(s)`.
 
+### The server key (`FMV_KEY`) — per-deployment, server-checked, and lost by sanitized HARs
+
+Renewal is the only thing that needs the key, and the server genuinely checks it. With a wrong one:
+
+```
+GET_SERVER_TIME   Basic <bogus>:   -> 401 {"error":"HTTP key invalid","code":16}
+authenticate/custom  no header     -> 401 {"message":"Server key required"}
+authenticate/custom  Basic <bogus> -> 401 {"message":"Server key invalid"}
+```
+
+So it is **not** a well-known constant: `defaultkey`, `nakama` and the game's own name all return
+`HTTP key invalid`, and it is **per deployment**, not game-wide — which kills the "just hardcode it"
+idea. It is also not in the client bundle: the 4.2 MB `game.g` build and the CoolGames backend
+engine only carry the Nakama **library** default (`constructor(e="defaultkey", …)`), never a literal
+key, because the client receives it as `config.serverKey` from its platform integration.
+
+**Why captures lose it.** Chrome's DevTools default export is *sanitized*: it strips `Authorization`
+and `Cookie` from every entry. A `2026-10-31` capture of the activity proves it — 479 entries, **0**
+`Authorization` headers and **0** cookie values, while the same capture contains the
+`authenticate/custom` call that cannot succeed without one. So the key survives only in
+**"Export HAR (with sensitive data)"**. `setup.js` detects the sanitized shape and says so.
+
+**Checked the public web build instead (CDP, Chrome, throwaway profile).** The portal build is the
+*same version* (`1.80.4-1`, served from `cdn.games.mobinozer.com/ext/farm_merge_azerion/production/`)
+but a **different backend**: `public.farm-merge-valley-standalone.nakama.live.cg-gb.com`, a CoolGames
+standalone deployment that serves `/api/configurations`, `/api/time`, `/api/tracking/*` and runs the
+`map_short_-_no_social_features` map. Its `serverKey` comes from that deployment's own config, and its
+Nakama instance is not the Discord one — so a key harvested from the web build would not
+authenticate the activity's proxy. `scratch/cdp_capture.js` is the tool used for it.
+
 ### The full RPC surface (both HARs: 955 + 1032 WebSocket frames)
 
 ```

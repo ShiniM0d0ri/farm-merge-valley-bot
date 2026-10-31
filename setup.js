@@ -71,11 +71,15 @@ let discordId = null;
 let nakamaRt = null;
 let discordAt = null;
 let discordRt = null;
+let authHeaderCount = 0;
+let authCallCount = 0;
 const vars = {};
 
 for (const e of entries) {
   const req = e.request || {};
   const url = String(req.url || '');
+
+  if (/authenticate\/(custom|device|email)/.test(url)) authCallCount++;
 
   if (!wsToken && url.includes('/nakama/ws')) {
     const m = url.match(/[?&]token=([A-Za-z0-9._-]+)/);
@@ -88,6 +92,7 @@ for (const e of entries) {
   for (const h of req.headers || []) {
     const name = String(h.name || '').toLowerCase();
     const value = String(h.value || '');
+    if (name === 'authorization') authHeaderCount++;
     if (!serverKey && name === 'authorization' && /^basic\s+/i.test(value)) {
       serverKey = Buffer.from(value.replace(/^basic\s+/i, ''), 'base64').toString('utf8').replace(/:$/, '');
     }
@@ -138,6 +143,15 @@ if (rtExp) console.log(`  jwt exp       ${rtExp.when}  (${rtExp.exp * 1000 <= Da
 console.log(`discord tokens  at ${mask(discordAt)}  rt ${mask(discordRt)}`);
 console.log(`discord vars    app_id ${vars.discord_app_id || '-'}  channel ${mask(vars.discord_channel_id, 8)}  instance ${mask(vars.discord_instance_id, 8)}`);
 
+// A DevTools "sanitized" export strips Authorization and Cookie from every entry, which silently
+// loses the server key. Detect it here so `--print` reports it too, not just a real write.
+if (!serverKey && authCallCount > 0 && authHeaderCount === 0) {
+  console.log(`\nWARNING: none of the ${authCallCount} authenticate call(s) carries an Authorization header.`);
+  console.log('         That is a DevTools *sanitized* export, which strips Authorization and Cookie,');
+  console.log('         so the server key (FMV_KEY) cannot be recovered from it. Re-export with');
+  console.log('         right-click -> "Export HAR (with sensitive data)" if you need --refresh.');
+}
+
 if (PRINT_ONLY) process.exit(0);
 
 // ---- merge with an existing .env ------------------------------------------
@@ -170,6 +184,14 @@ if (!serverKey) {
   console.log('\nnote: no `Authorization: Basic` header in this capture, so FMV_KEY is left as it was.');
   console.log('      That is fine for normal runs (RPC authenticates with the session token); only');
   console.log('      `--refresh` needs it.');
+}
+// A DevTools "sanitized" export strips Authorization and Cookie from every entry, which silently
+// loses the server key. Detect it instead of leaving the user wondering why the header is missing.
+if (!serverKey && authCallCount > 0 && authHeaderCount === 0) {
+  console.log('\nWARNING: this capture has no Authorization header on any of its '
+    + `${authCallCount} authenticate call(s) - it is a DevTools *sanitized* export,`);
+  console.log('         which strips Authorization and Cookie. The server key only survives an');
+  console.log('         unsanitized one: right-click the request list -> "Export HAR (with sensitive data)".');
 }
 
 if (fs.existsSync(ENV)) {
