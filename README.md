@@ -348,6 +348,7 @@ node timers.js                    # correlate TimerModel with tile cooldown/reso
 node check_work.js                # live report of dispatched workers, gates and MapSource timers
 node orders.js                    # read-only order report: slot states + craftable recipes
 node scratch/check_session.js     # is the account still reachable over HTTP? (server up? token ok?)
+node scratch/probe_key_validity.js [key...]  # does this FMV_KEY pass the server's HTTP-key check? (safe: no rotation)
 node scratch/probe_socket_slot.js 30   # hold the socket 30s; reports if another session boots us
 node scratch/regen_status.js      # live: per-generator readiness (due / ready-in / stock refill accrual)
 ```

@@ -750,6 +750,14 @@ and `Cookie` from every entry. A `2026-10-31` capture of the activity proves it 
 `authenticate/custom` call that cannot succeed without one. So the key survives only in
 **"Export HAR (with sensitive data)"**. `setup.js` detects the sanitized shape and says so.
 
+**Getting the key back without a fresh capture.** If the bot has already run on this machine, the key
+still exists in two places: the old `.env` (and `setup.js`'s `.env.bak`), and the local agent/editor
+session store, whose transcripts keep the `.env` contents you wrote. `scratch/probe_key_validity.js`
+then tells you whether a candidate is the right one **without touching any session**: it calls
+`/v2/account/session/refresh` with a syntactically valid but *unknown* refresh token, so nothing is
+rotated and no socket is opened. A wrong key stops at `Server key invalid`; the right key gets past the
+key check to `Refresh token invalid or expired`.
+
 **Checked the public web build instead (CDP, Chrome, throwaway profile).** The portal build is the
 *same version* (`1.80.4-1`, served from `cdn.games.mobinozer.com/ext/farm_merge_azerion/production/`)
 but a **different backend**: `public.farm-merge-valley-standalone.nakama.live.cg-gb.com`, a CoolGames
